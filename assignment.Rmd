@@ -1,7 +1,7 @@
 ---
 title: "Weather and Corn Yield Regressions"
-author: "Nathan Mueller"
-date: "2/25/2022"
+author: "Avery Driscoll"
+date: "3/2/2022"
 output: html_document
 ---
 
@@ -36,6 +36,7 @@ ggplot() +
 
 
 ```
+
 ```{r tidying up}
 
 # assign dimension names to tmax matrix
@@ -80,7 +81,7 @@ summary(lm_summertmax)
 ```{r winter temps}
 
 winnewinter <- tmaxdf %>%
-  filter(countyfp==191 & doy <= 59 | doy >= 335 & !is.na(tmax)) %>%
+  filter(countyfp==191 & (doy <= 59 | doy >= 335) & !is.na(tmax)) %>%
   group_by(year) %>%
   summarize(meantmax = mean(tmax))
 
@@ -115,10 +116,9 @@ ggplot(winnewinter) +
 
 ### Download NASS corn yield data
 
-```{r yield download}
-
+```{r yield download, results = F}
 # set our API key with NASS
-nassqs_auth(key = "...")
+nassqs_auth(key = "88135768-C75A-3AB0-9F93-00FA96F7B2CB")
 
 # parameters to query on 
 params <- list(commodity_desc = "CORN", util_practice_desc = "GRAIN", prodn_practice_desc = "ALL PRODUCTION PRACTICES", year__GE = 1981, state_alpha = "IA")
@@ -139,17 +139,252 @@ cornyields <- tibble(cornyields)
 ## Assignment
 
 ### Question 1a: Extract Winneshiek County corn yields, fit a linear time trend, make a plot. Is there a significant time trend?
+Yes, there is a significant linear relationship between yields and year.
+
+```{r problem 1a}
+#Subset winneshiek county
+winne_corn <- cornyields %>%
+  filter(county_ansi==191)
+
+#Fit model of yields by year and print output
+mod1 <- lm(yield~year, winne_corn)
+summary(mod1)
+
+#Plot relationship between year and yields
+ggplot(winne_corn, aes(x = year, y = yield)) + 
+  geom_point() + theme_classic() + 
+  xlab("Year") + ylab("Corn yield (bu/ac)") + 
+  geom_smooth(method = "lm")
+
+```
 
 ### Question 1b: Fit a quadratic time trend (i.e., year + year^2) and make a plot. Is there evidence for slowing yield growth? 
 
+There is no evidence for slowing yield growth in Winneshiek county over the study period. The addition of a $year^2$ term does not improve the model fit, and the coefficient estimate for $year^2$ is not significant. If there was evidence for a slowing yield trend, we would expect a significant, negative coefficient for the $year^2$ term.
+
+```{r problem 1b}
+#add year^2 term to the model
+winne_corn$year2 <- winne_corn$year^2
+mod2 <- lm(yield~year + year2, winne_corn)
+summary(mod2)
+
+#compare linear and quadratic models; no improvement from adding the quadratic term
+anova(mod1, mod2) 
+
+#Plot relationship between year and yields and overlay the fitted quadratic regression line
+ggplot(winne_corn, aes(x = year, y = yield)) + 
+  geom_point() + theme_classic() + 
+  xlab("Year") + ylab("Corn yield (bu/ac)") + 
+  geom_line(aes(y = mod2$fitted.values))
+
+```
+
 ### Question 2 -- Time Series: Let's analyze the relationship between temperature and yields for the Winneshiek County time series. Use data on yield and summer avg Tmax. Is adding year or Tmax^2 to your model helpful? Make a plot and interpret the results.
+
+There is no significant linear relationship between yields and tmax. Adding tmax to the regression of yields by year does not improve the model fit, and the coefficient estimate for tmax is not significant. However, there is a significant quadratic relationship between yields and tmax, indicating that yields increase with increasing temperatures up to a particular value of tmax, at which point yields decrease with further increases in tmax.
+
+```{r problem2}
+#merge temperature and yield data
+winne_yield_temp <- merge(winnesummer, winne_corn, by = "year")
+
+#Plot relationship between yield and temperature
+ggplot(winne_yield_temp, aes(x = meantmax, y = yield)) + geom_point()
+
+#fit a model of yield by mean tmax
+mod3 <- lm(yield~meantmax, winne_yield_temp)
+summary(mod3)
+
+#fit a model of yield including both year and tmax
+mod4 <- lm(yield~meantmax + year, winne_yield_temp)
+summary(mod4)
+
+#fit a model of yield including a quadratic term for tmax
+winne_yield_temp$meantmax2 <- winne_yield_temp$meantmax^2
+mod5 <- lm(yield~meantmax + meantmax2, winne_yield_temp)
+summary(mod5)
+
+#Plot fitted quadratic relationship between yield and temperature from mod5 (yield~tmax + tmax2)
+ggplot(winne_yield_temp, aes(x = meantmax, y = yield)) + 
+  geom_point() + theme_classic() + 
+  geom_line(aes(y = mod5$fitted.values)) + 
+  xlab("Mean maximum temperature (C)") + 
+  ylab("Corn yield (bu/ac)")
+
+```
 
 ### Question 3 -- Cross-Section: Analyze the relationship between temperature and yield across all counties in 2018. Is there a relationship? Interpret the results.
 
+Plotting county-level Iowa corn yields in 2018 by mean maximum summertime temperature suggests that there may be a quadratic relationship between corn yield and temperature, with maximum yields generally appearing around temperatures of ~28 degrees C. Regression results support this interpretation. The linear relationship between tmax and yield is only marginally significant ($p = 0.063$) and weak ($R^2 = 0.027$), but both terms in the quadratic regression are significant ($p < 0.01$ for both), and the explanatory power of the model improves ($R^2 = 0.11$).
+
+```{r problem 3}
+#Subset yields from 2018
+corn_2018 <- subset(cornyields, year == 2018)
+
+#Subset and summarize summer temperatures in 2018 for all IA counties
+tmax_2018 <- tmaxdf %>%
+  filter(year == 2018 & doy >= 152 & doy <= 243) %>%
+  group_by(countyfp) %>%
+  summarize(meantmax = mean(tmax))
+
+#Merge temperature and yield data based on county codes
+corn_2018 <- merge(corn_2018, tmax_2018, by.x = "county_ansi", by.y = "countyfp")
+
+#Visualize the relationship between yield and temperature
+ggplot(corn_2018, aes(x = meantmax, y = yield)) + 
+  geom_point() + theme_classic() +
+  ylab("Corn yield (bu/acre)") + xlab("Mean maximum temperature (C)")
+
+#Regress yields by temperature
+mod6 <- lm(yield ~ meantmax, corn_2018)
+summary(mod6)
+
+#Try adding a quadratic temperature term
+corn_2018$tmax2 <- corn_2018$meantmax^2
+mod7 <- lm(yield ~ meantmax + tmax2, corn_2018)
+summary(mod7)
+
+#Replot data including the quadratic trend
+ggplot(corn_2018, aes(x = meantmax, y = yield)) + 
+  geom_point() + theme_classic() +
+  ylab("Corn yield (bu/acre)") + xlab("Mean maximum temperature (C)") + 
+  geom_line(aes(y = mod7$fitted.values))
+
+```
+
 ### Question 4 -- Panel: One way to leverage multiple time series is to group all data into what is called a "panel" regression. Convert the county ID code ("countyfp" or "county_ansi") into factor using as.factor, then include this variable in a regression using all counties' yield and summer temperature data. How does the significance of your temperature coefficients (Tmax, Tmax^2) change? Make a plot comparing actual and fitted yields and interpret the results of your model.
+
+The model of yield including summer tmax, summer $tmax^2$, and a factor for county is significant, and the addition of the county term improves the explanatory power of the model relative to the model without the county term ($Adj. R^2$ increases from  0.19 to 0.24). The coefficient estimates for tmax (167.97) and $tmax^2$ (-3.13) are significant at $p < 0.0001$, and indicate that there is a positive relationship between yield and temperature up to a particular value of temperature, beyond which the relationship between yield and temperature is negative. These coefficient estimates are not significantly different than the coefficient estimates from the model excluding the county term (168.96 for tmax and -3.17 for $tmax^2$). However, the plot of modeled vs. observed yields suggests that there may be some heteroskedasticity in the residuals. 
+
+```{r problem 4}
+#Calculate summer temperature for all years and counties and calculate tmax^2
+tmax_summer <- tmaxdf %>%
+  filter(doy >= 152 & doy <= 243) %>%
+  group_by(countyfp, year) %>%
+  summarize(meantmax = mean(tmax), tmax2 = (mean(tmax))^2) %>%
+  rename(county_ansi = countyfp)
+
+#Merge temps with corn yield data,  convert county to a factor
+corn_and_temp <- merge(cornyields, tmax_summer, by = c("county_ansi", "year"))
+corn_and_temp$county_ansi <- as.factor(as.character(corn_and_temp$county_ansi))
+
+#Fit quadratic model of yields by temperature without county
+mod8 <- lm(yield ~ meantmax + tmax2, corn_and_temp)
+summary(mod8)
+
+#Plot relationship between yields and temperature with the fitted regression line
+ggplot(corn_and_temp, aes(x = meantmax, y = yield)) + 
+  geom_point(alpha = 0.2) + theme_classic() +
+  ylab("Corn yield (bu/acre)") + xlab("Mean maximum temperature (C)") + 
+  geom_line(color = "blue", aes(y = mod8$fitted.values))
+
+#Refit quadratic model of yields by temperature including county as a fixed effect
+mod9 <- lm(yield ~ meantmax + tmax2 + county_ansi, corn_and_temp)
+summary(mod9)
+
+#Store fitted values from the panel regression and plot observed vs. fitted values
+corn_and_temp$fitted <- mod9$fitted.values
+ggplot(corn_and_temp, aes(x = yield, y = fitted)) + 
+  geom_point(alpha = 0.2) + theme_classic() +
+  ylab("Modeled corn yield") + xlab("Observed corn yield") + 
+  xlim(19, 230) + ylim(19, 230) + #set axis limits to better see how close to 1:1 the relationship is
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed") #add dashed identity line
+
+```
+
 
 ### Question 5 -- Soybeans: Download NASS data on soybean yields and explore either a time series relationship for a given county, the cross-sectional relationship for a given year, or a panel across all counties and years.
 
+I explored the cross-sectional relationship between soybean yields and summer temperatures in 2018. There is a significant quadratic relationship between soybean yields and mean summer temperatures across Iowa counties in 2018. Soybean yields respond to temperature similarly to corn, with increases in yields up to ~28 degrees C, beyond which yields begin to decline.
+
+```{r problem 5, results = F}
+#Define and pull data 
+params <- list(commodity_desc = "SOYBEANS", prodn_practice_desc = "ALL PRODUCTION PRACTICES", year__GE = 1981, state_alpha = "IA", reference_period_desc = "YEAR", agg_level_desc = "COUNTY")
+soyyield_all <- nassqs_yields(params)
+
+```
+
+```{r problem 5 part 2}
+#Clean up dataframe and drop NAs
+soyyield <- soyyield_all %>% 
+  select(county_ansi, county_name, Value, year) %>%
+  mutate(county_ansi = as.numeric(county_ansi), yield = as.numeric(Value)) %>%
+  filter(!is.na(county_ansi) & !is.na(Value))
+
+##Look at the cross-sectional relationship between soybean yields and tmax for 2018
+#subset soybean yields and merge with tmax, add a column for tmax^2
+soy_2018 <- subset(soyyield, year == 2018)
+soy_2018 <- merge(soy_2018, tmax_2018, by.x = "county_ansi", by.y = "countyfp")
+soy_2018$tmax2 <- soy_2018$meantmax^2
+
+#Try fitting a quadratic model of soy yields; both terms are significant
+mod10 <- lm(yield ~ meantmax + tmax2, soy_2018)
+summary(mod10)
+
+#Plot soy yield by tmax
+ggplot(soy_2018, aes(x = meantmax, y = yield)) + 
+  geom_point() + theme_classic() +
+  ylab("Soybean yield (bu/acre)") + xlab("Mean maximum temperature (C)") + 
+  geom_line(color = "blue", aes(y = mod10$fitted.values))
+
+```
+
 ### Bonus: Find a package to make a county map of Iowa displaying some sort of information about yields or weather. Interpret your map.
 
+This map shows county-level yields of soybeans in Iowa in 2018. Darker colors correspond to higher yields; yields tend to be highest in the southeast and northwest corners of the state, and lowest in the south central portion of the state.
+
+```{r bonus question 1}
+library(usmap)
+
+#The usmap function takes a 2-column data frame containing the fips code and the value of interest. So, we need to combine the state fips codes with the county ansi codes that contain leading zeros.
+soyyield <- soyyield_all %>% 
+  filter(!county_ansi == "") %>% #removes any blanks in the county ansi code column 
+  mutate(county_ansi = paste0(state_ansi, county_ansi), yield = as.numeric(Value)) %>%
+  filter(year == 2018 & !is.na(Value)) %>%
+  select(county_ansi, county_name, yield, year)
+
+#Plot 2018 soybean yields in Iowa
+plotdf <- soyyield[,c("county_ansi", "yield")]
+colnames(plotdf) <- c("fips", "yield")
+plot_usmap(regions = "counties", data = plotdf, values = "yield", include = c("IA"), size = 0.2) + #define data and area to be plotted and boundary weights
+  scale_fill_continuous(na.value= "darkgrey", low = "white", high = "#2d4d68",
+                        name = "Soybean yield (bu/acre)", label = scales::comma) + #adjust color scale
+  theme(legend.position = "right") + #adjust legend position
+  theme(panel.background = element_rect(colour = "black")) #adjust aesthetics
+
+```
+
 ### Bonus #2: Challenge question - map trends in corn yields by county across Iowa. Interpret your map.
+All counties in Iowa have experienced a significant increase in soybean yields over this 41-year period. Annual rates of increase ranged from 0.41 bushels per acre per year to 0.69 bushels per acre per year, with a mean rate of increase of 0.53 bushels per acre per year. The map of county-level estimates for the rate of increase suggests that the largest increases have occurred in the northern and western parts of the state, while smaller increases occured in the central part of the state.
+
+```{r bonus question 2}
+##Here, we want to fit a linear model of yield ~ year to each county and store the year coefficients for each county in a dataframe. Then, we can map the coefficients to see if yield increased faster in some counties than others. 
+
+#Preprocess the data to remove NAs, combine state and county fips codes, select desired columns, and group by county
+soyyield_grouped <- soyyield_all %>% 
+  filter(!county_ansi == "") %>% #removes any blanks in the county ansi code column 
+  mutate(county_ansi = paste0(state_ansi, county_ansi), yield = as.numeric(Value)) %>% #combines state and county ansi, converts yield to numeric
+  filter(!is.na(yield)) %>%
+  select(county_ansi, county_name, yield, year) %>%
+  group_by(county_ansi) #Groups the data by county
+
+##Fit the lm to each county and store the output
+library(broom) #The broom package makes it easy to store lm outputs
+#"do" iterates the function over a grouped data frame. "tidy" stores model coefficients as a data frame. 
+lm_out <- do(soyyield_grouped, tidy(lm(yield ~ year, data = .))) %>%
+  filter(term == "year") #we only care about the slope coefficients, not the intercepts
+
+#Check to see if any regressions of yield~year are insignificant
+unique(lm_out$p.value > 0.05) #all significant
+summary(lm_out$estimate)
+
+##Map the model coefficients
+plotdf <- lm_out[,c("county_ansi", "estimate")]
+colnames(plotdf) <- c("fips", "estimate")
+plot_usmap(regions = "counties", data = plotdf, values = "estimate", include = c("IA"), size = 0.2) +
+  scale_fill_continuous(na.value= "darkgrey", low = "white", high = "#2d4d68",
+                        name = "Annual increase in soybean yield (bu/acre)", label = scales::comma) + 
+  theme(legend.position = "right") + 
+  theme(panel.background = element_rect(colour = "black"))
+
+```
+
