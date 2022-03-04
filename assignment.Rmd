@@ -253,7 +253,7 @@ ggplot(corn_2018, aes(x = meantmax, y = yield)) +
 
 ### Question 4 -- Panel: One way to leverage multiple time series is to group all data into what is called a "panel" regression. Convert the county ID code ("countyfp" or "county_ansi") into factor using as.factor, then include this variable in a regression using all counties' yield and summer temperature data. How does the significance of your temperature coefficients (Tmax, Tmax^2) change? Make a plot comparing actual and fitted yields and interpret the results of your model.
 
-The model of yield including summer tmax, summer $tmax^2$, and a factor for county is significant, and the addition of the county term improves the explanatory power of the model relative to the model without the county term ($Adj. R^2$ increases from  0.19 to 0.24). The coefficient estimates for tmax (167.97) and $tmax^2$ (-3.13) are significant at $p < 0.0001$, and indicate that there is a positive relationship between yield and temperature up to a particular value of temperature, beyond which the relationship between yield and temperature is negative. These coefficient estimates are not significantly different than the coefficient estimates from the model excluding the county term (168.96 for tmax and -3.17 for $tmax^2$). However, the plot of modeled vs. observed yields suggests that there may be some heteroskedasticity in the residuals. 
+The model of yield including summer tmax, summer $tmax^2$, and a factor for county is significant, and the addition of the county term improves the explanatory power of the model relative to the model without the county term ($Adj. R^2$ increases from  0.19 to 0.24). The coefficient estimates for tmax (167.97) and $tmax^2$ (-3.13) are significant at $p < 0.0001$, and indicate that there is a positive relationship between yield and temperature up to a particular value of temperature, beyond which the relationship between yield and temperature is negative. These coefficient estimates are not significantly different than the coefficient estimates from the model excluding the county term (168.96 for tmax and -3.17 for $tmax^2$). However, the plot of modeled vs. observed yields suggests that there may be some heteroskedasticity in the residuals. Adding year to the model substantially improves model fit ($R^2$ increases to 0.71) and improves the distribution of the residuals.
 
 ```{r problem 4}
 #Calculate summer temperature for all years and counties and calculate tmax^2
@@ -288,6 +288,16 @@ ggplot(corn_and_temp, aes(x = yield, y = fitted)) +
   ylab("Modeled corn yield") + xlab("Observed corn yield") + 
   xlim(19, 230) + ylim(19, 230) + #set axis limits to better see how close to 1:1 the relationship is
   geom_abline(intercept = 0, slope = 1, linetype = "dashed") #add dashed identity line
+
+#Try adding  year term to improve fit and heteroskedasticity:
+mod9 <- lm(yield ~ meantmax + tmax2 + year + county_ansi, corn_and_temp)
+summary(mod9)
+corn_and_temp$fitted <- mod9$fitted.values
+ggplot(corn_and_temp, aes(x = yield, y = fitted)) + 
+  geom_point(alpha = 0.2) + theme_classic() +
+  ylab("Modeled corn yield") + xlab("Observed corn yield") + 
+  xlim(19, 230) + ylim(19, 230) + 
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed") 
 
 ```
 
